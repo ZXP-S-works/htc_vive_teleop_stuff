@@ -26,17 +26,11 @@ def get_controller_ids(vrsys=None):
         vrsys = openvr.VRSystem()
     else:
         vrsys = vrsys
-    left = None
-    right = None
     for i in range(openvr.k_unMaxTrackedDeviceCount):
         device_class = vrsys.getTrackedDeviceClass(i)
         if device_class == openvr.TrackedDeviceClass_Controller:
             role = vrsys.getControllerRoleForTrackedDeviceIndex(i)
-            if role == openvr.TrackedControllerRole_RightHand:
-                right = i
-            if role == openvr.TrackedControllerRole_LeftHand:
-                left = i
-    return left, right
+    return role
 
 
 def get_lighthouse_ids(vrsys=None):
@@ -179,7 +173,7 @@ if __name__ == '__main__':
     max_init_retries = 4
     while retries < max_init_retries:
         try:
-            openvr.init(openvr.VRApplication_Scene)
+            openvr.init(openvr.VRApplication_Other)
             break
         except openvr.OpenVRError as e:
             print("Error when initializing OpenVR (try {} / {})".format(
@@ -201,13 +195,14 @@ if __name__ == '__main__':
     print("VRSystem...")
     vrsystem = openvr.VRSystem()
 
-    left_id, right_id = None, None
+    controller_id = None
     print("===========================")
     print("Waiting for controllers...")
     try:
-        while left_id is None or right_id is None:
-            left_id, right_id = get_controller_ids(vrsystem)
-            if left_id and right_id:
+        while controller_id is None:
+            controller_id = get_controller_ids(vrsystem)
+            print(controller_id)
+            if controller_id:
                 break
             print("Waiting for controllers...")
             time.sleep(1.0)
@@ -215,8 +210,7 @@ if __name__ == '__main__':
         print("Control+C pressed, shutting down...")
         openvr.shutdown()
 
-    print("Left controller ID: " + str(left_id))
-    print("Right controller ID: " + str(right_id))
+    print("controller_id: " + str(controller_id))
     print("===========================")
 
     lighthouse_ids = get_lighthouse_ids(vrsystem)
@@ -256,20 +250,20 @@ if __name__ == '__main__':
         vrsystem.triggerHapticPulse(controller_id, 0, strength)
 
     vib_left = rospy.Subscriber('vive_left_vibration', Float64, vibration_cb,
-                                callback_args=left_id, queue_size=1)
+                                callback_args=controller_id, queue_size=1)
 
-    vib_right = rospy.Subscriber('vive_right_vibration', Float64, vibration_cb,
-                                 callback_args=right_id, queue_size=1)
+    # vib_right = rospy.Subscriber('vive_right_vibration', Float64, vibration_cb,
+    #                              callback_args=right_id, queue_size=1)
 
     # Internet says the tracking can be up until 250Hz
     r = rospy.Rate(250)
     while not rospy.is_shutdown():
         r.sleep()
         poses = poses_t()
+        # origin, predictedSecondsToPhotonsFromNow: float, trackedDevicePoseArray/
         vrsystem.getDeviceToAbsoluteTrackingPose(
             openvr.TrackingUniverseStanding,
             0,
-            len(poses),
             poses)
 
         now = rospy.Time.now()
@@ -292,14 +286,14 @@ if __name__ == '__main__':
             # print("Lighthouse #" + str(idx) + " :")
             # pp.pprint(lhouse_pose)
 
-        if left_id:
-            matrix = poses[left_id].mDeviceToAbsoluteTracking
+        if controller_id:
+            matrix = poses[controller_id].mDeviceToAbsoluteTracking
             left_pose = from_matrix_to_transform(matrix,
                                                  now,
                                                  "world",
                                                  "left_controller")
             transforms.append(left_pose)
-            result, pControllerState = vrsystem.getControllerState(left_id)
+            result, pControllerState = vrsystem.getControllerState(controller_id)
             new_msg, j = from_controller_to_joy(prev_unPacketNum_left,
                                                 pControllerState,
                                                 now,
@@ -310,25 +304,25 @@ if __name__ == '__main__':
             # print("Left controller:")
             # # pp.pprint(d)
             # pp.pprint(left_pose)
-
-        if right_id:
-            matrix = poses[right_id].mDeviceToAbsoluteTracking
-            right_pose = from_matrix_to_transform(matrix,
-                                                  now,
-                                                  "world",
-                                                  "right_controller")
-            transforms.append(right_pose)
-            result, pControllerState = vrsystem.getControllerState(right_id)
-            new_msg, j = from_controller_to_joy(prev_unPacketNum_right,
-                                                pControllerState,
-                                                now,
-                                                "right_controller")
-            prev_unPacketNum_right = pControllerState.unPacketNum
-            if new_msg:
-                joy_right_pub.publish(j)
-            # print("Right controller:")
-            # # pp.pprint(d)
-            # pp.pprint(right_pose)
+        #
+        # if right_id:
+        #     matrix = poses[right_id].mDeviceToAbsoluteTracking
+        #     right_pose = from_matrix_to_transform(matrix,
+        #                                           now,
+        #                                           "world",
+        #                                           "right_controller")
+        #     transforms.append(right_pose)
+        #     result, pControllerState = vrsystem.getControllerState(right_id)
+        #     new_msg, j = from_controller_to_joy(prev_unPacketNum_right,
+        #                                         pControllerState,
+        #                                         now,
+        #                                         "right_controller")
+        #     prev_unPacketNum_right = pControllerState.unPacketNum
+        #     if new_msg:
+        #         joy_right_pub.publish(j)
+        #     # print("Right controller:")
+        #     # # pp.pprint(d)
+        #     # pp.pprint(right_pose)
 
         for idx, _id in enumerate(generic_tracker_ids):
             matrix = poses[_id].mDeviceToAbsoluteTracking
